@@ -1,14 +1,24 @@
-import { Kafka } from 'kafkajs';
+import express from 'express';
 
-const kafka = new Kafka({
-  brokers: ['localhost:9092'],
-  clientId: 'certificate',
-})
+import KafkaConnection from '../../utils/kafkaConn';
+
+const app = express();
+
+const kafka = KafkaConnection.connect('certificate');
 
 const topic = 'issue-certificate'
-const consumer = kafka.consumer({ groupId: 'certificate-group' })
 
+const consumer = kafka.consumer({ groupId: 'certificate-group' })
 const producer = kafka.producer();
+
+/**
+ * Disponibiliza o producer para todas rotas
+ */
+app.use((req, res, next) => {
+  req.producer = producer;
+
+  return next();
+})
 
 async function run() {
   await consumer.connect()
@@ -16,19 +26,24 @@ async function run() {
 
   await consumer.run({
     eachMessage: async ({ topic, partition, message }) => {
-      const prefix = `${topic}[${partition} | ${message.offset}] / ${message.timestamp}`
+      const prefix = `Tópico: ${topic}[${partition} | ${message.offset}] / ${message.timestamp}`
       console.log(`- ${prefix} ${message.key}#${message.value}`)
 
       const payload = JSON.parse(message.value);
 
-      // setTimeout(() => {
       producer.send({
         topic: 'certification-response',
         messages: [
           { value: `Certificado do usuário ${payload.user.name} do curso ${payload.course} gerado!` }
         ]
       })
-      // }, 3000);
+
+      producer.send({
+        topic: 'create-user',
+        messages: [
+          { value: `Usuário ${payload.user.name} com email ${payload.user.email} gerado!` }
+        ]
+      })
     },
   })
 }
